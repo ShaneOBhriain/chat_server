@@ -28,6 +28,7 @@ mainLoop sock chan msgNum = do
   forkIO (runConn conn chan msgNum)
   mainLoop sock chan $! msgNum + 1
 
+
 runConn :: (Socket, SockAddr) -> Chan Msg -> Int -> IO ()
 runConn (sock, _) chan msgNum = do
     let broadcast msg = writeChan chan (msgNum, msg)
@@ -44,6 +45,7 @@ runConn (sock, _) chan msgNum = do
     -- fork off a thread for reading from the duplicated channel
     reader <- forkIO $ fix $ \loop -> do
         (nextNum, line) <- readChan commLine
+        broadcast (show nextNum)
         when (msgNum /= nextNum) $ hPutStrLn hdl line
         loop
 
