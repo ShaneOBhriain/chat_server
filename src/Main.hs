@@ -1,6 +1,7 @@
 -- Main.hs, final code
 module Main where
 
+import Data.List
 import Network.Socket
 import System.IO
 import Control.Exception
@@ -23,10 +24,6 @@ main = do
     loop
   mainLoop sock chan 0
 
-data Message  = In MessageType
-							| Out MessageType
-
-data MessageType name pattern = definition
 type Msg = (Int, String)
 
 mainLoop :: Socket -> Chan Msg -> Int -> IO ()
@@ -36,12 +33,18 @@ mainLoop sock chan msgNum = do
   -- $! = strict function application
   mainLoop sock chan $! msgNum + 1
 
+dropJust :: Maybe Int -> Int
+dropJust (Just a) = a
 
--- getSockPort :: Socket -> String
--- getSockPort x = do:
+getSockPort :: SockAddr -> String
+getSockPort x = tail $ drop (dropJust (elemIndex ':' $ show x)) $ show x
 
--- getHeloText :: SockAddr -> String
--- getHeloText (port,address) = "HELO text\nIP: " ++ show address ++ "\n" ++ "Port: " ++ show port ++ "\nStudentID: 13324607\n"
+getSockAddress :: SockAddr -> String
+getSockAddress x = take (dropJust (elemIndex ':' $ show x)) $ show x
+
+
+getHeloText :: SockAddr -> String
+getHeloText address = "HELO text\nIP: "  ++ getSockAddress address ++ "\n" ++ "Port: " ++ getSockPort address ++ "\nStudentID: 13324607\n"
 
 runConn :: (Socket, SockAddr) -> Chan Msg -> Int -> IO ()
 runConn (sock, address) chan msgNum = do
@@ -68,13 +71,14 @@ runConn (sock, address) chan msgNum = do
         when (msgNum /= nextNum) $ hPutStrLn hdl line
         loop
 
+
     handle (\(SomeException _) -> return ()) $ fix $ \loop -> do
         line <- fmap init (hGetLine hdl)
         case line of
               -- "KILL_SERVICE" -> hPutStrLn hdl "Bye!"
              -- If an exception is caught, send a message and break the loop
              "KILL_SERVICE" -> hPutStrLn hdl "Bye!"
-             "HELO text" -> hPutStrLn hdl "Hello"
+             "HELO text" -> hPutStrLn hdl (getHeloText address) >> loop
              -- else, continue looping.
              _      -> broadcast (name ++ ": " ++ line) >> loop
 
