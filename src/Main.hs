@@ -20,42 +20,59 @@ main = do
   -- listen :: socket -> MaxNumberOfQueueConnections
   listen sock 2
   listeningChan <- newChan
-
   -- this loop waits for connections, line 2 reads chan
   _ <- forkIO $ fix $ \loop -> do
     putStr "loop in main\n"
     (_, _) <- readChan listeningChan
     loop
   putStr "calling mainloop no idea why\n"
-  mainLoop sock listeningChan 0
+  mainLoop sock listeningChan
 
 type Msg = (Int, String)
 
-mainLoop :: Socket -> Chan Msg -> Int -> IO ()
-mainLoop sock chan msgNum = do
+-- stringChan :: Chan Msg-> String
+-- stringChan (i s)= show i
+
+mainLoop :: Socket -> Chan Msg -> IO ()
+mainLoop sock chan = do
   putStr "loop in mainLoop\n"
   conn <- accept sock
-  forkIO (runConn conn chan msgNum)
-  -- $! = strict function application
-  mainLoop sock chan $! msgNum + 1
+  -- line above waits until join then runs line below
+  forkIO (runConn conn chan [])
+  mainLoop sock chan
+
+
 
 -- offers lobby for the user to choose their chan
-runConn :: (Socket, SockAddr) -> Chan Msg -> Int -> IO()
-runConn (sock, address) chan msgNum = do
+runConn :: (Socket, SockAddr) -> Chan Msg -> [Chan Msg] -> IO()
+runConn (sock, address) chan chanList = do
   hdl <- socketToHandle sock ReadWriteMode
   hSetBuffering hdl NoBuffering
   message <- fmap init (hGetLine hdl)
-  processMessage message address hdl
+  messageType <- processMessage message
+  case messageType of
+    0 -> hClose hdl
+    1 -> sendHeloText address hdl
+    2 -> putStr "Handling CHAT message"
+    3 -> putStr "Disconnecting"
+    4 -> putStr "Joining chatroom"
+    5 -> putStr "Leaving chatroom"
+    6 -> putStr "handle other messages"
 
-processMessage :: String -> SockAddr -> Handle -> IO()
-processMessage msg address handle
-    | msg == "KILL_SERVICE\n" = putStr "Killing service"
-    | substring "HELO_text" msg = sendHeloText address handle
-    | substring "CHAT:" msg = putStr "Handling CHAT message"
-    | substring "DISCONNECT" msg = putStr "Disconnecting"
-    | substring "LEAVE_CHATROOM" msg = putStr "Joining chatroom"
-    | substring "JOIN_CHATROOM" msg = putStr "Joining chatroom"
-    | otherwise = putStr "ELSE I GUESS"
+processMessage :: String -> IO Integer
+processMessage msg
+    | substring "KILL_SERVICE" msg = return 0
+    | substring "HELO_text" msg = return 1
+    | substring "CHAT:" msg = return 2
+    | substring "DISCONNECT" msg = return 3
+    | substring "JOIN_CHATROOM" msg = return 4
+    | substring "LEAVE_CHATROOM" msg = return 5
+    | otherwise = return 6
+
+-- chatLoop :: (Socket, SockAddr) -> Chan Msg -> Int -> IO()
+
+
+-- joinOrCreateChan :: String -> Chan Msg
 
 substring :: String -> String -> Bool
 substring (x:xs) [] = False
