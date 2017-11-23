@@ -35,19 +35,23 @@ type Msg = (Int, String)
 
 mainLoop :: Socket -> Chan Msg -> IO ()
 mainLoop sock chan = do
-  putStr "loop in mainLoop\n"
+  -- putStr "loop in mainLoop\n"
   conn <- accept sock
+  hdl <- setHandle conn
   -- line above waits until join then runs line below
-  forkIO (runConn conn chan [])
+  forkIO (runConn conn hdl chan [])
   mainLoop sock chan
 
-
-
--- offers lobby for the user to choose their chan
-runConn :: (Socket, SockAddr) -> Chan Msg -> [Chan Msg] -> IO()
-runConn (sock, address) chan chanList = do
+setHandle :: (Socket,SockAddr) -> IO Handle
+setHandle (sock,addr) = do
+  putStr "setting Handle"
   hdl <- socketToHandle sock ReadWriteMode
   hSetBuffering hdl NoBuffering
+  return hdl
+
+-- offers lobby for the user to choose their chan
+runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> [Chan Msg] -> IO()
+runConn (sock, address) hdl chan chanList = do
   message <- fmap init (hGetLine hdl)
   messageType <- processMessage message
   case messageType of
@@ -58,6 +62,7 @@ runConn (sock, address) chan chanList = do
     4 -> putStr "Joining chatroom"
     5 -> putStr "Leaving chatroom"
     6 -> putStr "handle other messages"
+  runConn (sock, address) hdl chan chanList
 
 processMessage :: String -> IO Integer
 processMessage msg
