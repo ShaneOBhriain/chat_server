@@ -20,6 +20,7 @@ main = do
   -- listen :: socket -> MaxNumberOfQueueConnections
   listen sock 2
   listeningChan <- newChan
+
   -- this loop waits for connections, line 2 reads chan
   _ <- forkIO $ fix $ \loop -> do
     putStr "loop in main\n"
@@ -35,11 +36,10 @@ type Msg = (Int, String)
 
 mainLoop :: Socket -> Chan Msg -> IO ()
 mainLoop sock chan = do
-  -- putStr "loop in mainLoop\n"
   conn <- accept sock
   hdl <- setHandle conn
   -- line above waits until join then runs line below
-  forkIO (runConn conn hdl chan [])
+  forkIO (runConn conn hdl chan [] )
   mainLoop sock chan
 
 setHandle :: (Socket,SockAddr) -> IO Handle
@@ -49,20 +49,50 @@ setHandle (sock,addr) = do
   hSetBuffering hdl NoBuffering
   return hdl
 
+getFirst :: (String, Chan Msg) -> String
+getFirst (x,y) = x
+
+getSecond :: (String, Chan Msg) -> Chan Msg
+getSecond (x,y) = y
+
 -- offers lobby for the user to choose their chan
-runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> [Chan Msg] -> IO()
+-- Parameters: Socket, Handle of socket, Current Chan, List of Existing Chans, List of existing chan names
+runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> [(String, Chan Msg)] -> IO()
 runConn (sock, address) hdl chan chanList = do
   message <- fmap init (hGetLine hdl)
   messageType <- processMessage message
   case messageType of
     0 -> hClose hdl
     1 -> sendHeloText address hdl
-    2 -> putStr "Handling CHAT message"
-    3 -> putStr "Disconnecting"
-    4 -> putStr "Joining chatroom"
-    5 -> putStr "Leaving chatroom"
-    6 -> putStr "handle other messages"
-  runConn (sock, address) hdl chan chanList
+    2 -> putStrLn "Handling CHAT message"
+    3 -> putStrLn "Disconnecting"
+    4 -> do
+          putStrLn "Joining chatroom"
+          let clientName = getClientName message
+          let chatroomName = getChatroomName message
+          let myNewChan = lookup chatroomName chanList
+          case myNewChan of
+            Nothing -> putStrLn "Found Nothing"
+            Just x -> putStrLn "Found Something"
+          putStrLn "Good job"
+    5 -> putStrLn "Leaving chatroom"
+    6 -> putStrLn "handle other messages"
+    otherwise -> runConn (sock, address) hdl chan chanList
+
+-- getOrCreateChan:: String -> [(String, Chan Msg)] -> IO Chan Msg
+-- getOrCreateChan chanName chanList = do
+
+
+getClientName :: String -> String
+getClientName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse x)) $ reverse x
+
+getFirstLine :: String -> String
+getFirstLine x = take (unpackJust (elemIndex '\\' $ x)) $ x
+
+getChatroomName :: String -> String
+getChatroomName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse (getFirstLine x))) $ reverse (getFirstLine x)
+
+-- joinChatroom :: String -> [Chan Msg] -> ()
 
 processMessage :: String -> IO Integer
 processMessage msg
@@ -90,6 +120,10 @@ prefix :: String -> String -> Bool
 prefix [] ys = True
 prefix (x:xs) [] = False
 prefix (x:xs) (y:ys) = (x == y) && prefix xs ys
+
+unpackJustString :: Maybe String -> String
+unpackJustString (Just a) = a
+unpackJustString _  = "Nothing"
 
 unpackJust :: Maybe Int -> Int
 unpackJust (Just a) = a
