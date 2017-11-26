@@ -22,7 +22,7 @@ main = do
   listen sock 2
   listeningChan <- newChan
 
-  referenceNumber <- newIORef 0
+  referenceList <- newIORef []
 
   -- this loop waits for connections, line 2 reads chan
   _ <- forkIO $ fix $ \loop -> do
@@ -30,14 +30,14 @@ main = do
     (_, _) <- readChan listeningChan
     loop
   putStr "calling mainloop no idea why\n"
-  mainLoop sock listeningChan referenceNumber
+  mainLoop sock listeningChan referenceList
 
 type Msg = (Int, String)
 
 -- stringChan :: Chan Msg-> String
 -- stringChan (i s)= show i
 
-mainLoop :: Socket -> Chan Msg -> IORef Int-> IO ()
+mainLoop :: Socket -> Chan Msg -> IORef [(String, Chan a)]-> IO ()
 mainLoop sock chan numb = do
   conn <- accept sock
   hdl <- setHandle conn
@@ -58,14 +58,16 @@ getFirst (x,y) = x
 getSecond :: (String, Chan Msg) -> Chan Msg
 getSecond (x,y) = y
 
-incRef :: IORef Int -> IO ()
+incRef :: IORef [(String, Chan a)] -> IO ()
 incRef var = do
+    myChan <- newChan
     val <- readIORef var
-    writeIORef var (val+1)
+    let newVal = ("myChan",myChan):val
+    writeIORef var newVal
 
 -- offers lobby for the user to choose their chan
 -- Parameters: Socket, Handle of socket, Current Chan, List of Existing Chans, List of existing chan names
-runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> [(String, Chan Msg)] -> IORef Int -> IO()
+runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> [(String, Chan Msg)] -> IORef [(String, Chan a)] -> IO()
 runConn (sock, address) hdl chan chanList numb = do
   message <- fmap init (hGetLine hdl)
   messageType <- processMessage message
@@ -87,7 +89,7 @@ runConn (sock, address) hdl chan chanList numb = do
     5 -> putStrLn "Leaving chatroom"
     6 -> do
           val <- readIORef numb
-          putStrLn $ show val
+          putStrLn $ show $ length  val
     otherwise -> runConn (sock, address) hdl chan chanList numb
 
 -- getOrCreateChan:: String -> [(String, Chan Msg)] -> IO Chan Msg
