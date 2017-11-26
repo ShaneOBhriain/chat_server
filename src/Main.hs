@@ -2,6 +2,7 @@
 module Main where
 
 import Data.List
+import Data.IORef
 import Network.Socket
 import System.IO
 import Data.List.Split
@@ -21,26 +22,28 @@ main = do
   listen sock 2
   listeningChan <- newChan
 
+  referenceNumber <- newIORef 0
+
   -- this loop waits for connections, line 2 reads chan
   _ <- forkIO $ fix $ \loop -> do
     putStr "loop in main\n"
     (_, _) <- readChan listeningChan
     loop
   putStr "calling mainloop no idea why\n"
-  mainLoop sock listeningChan
+  mainLoop sock listeningChan referenceNumber
 
 type Msg = (Int, String)
 
 -- stringChan :: Chan Msg-> String
 -- stringChan (i s)= show i
 
-mainLoop :: Socket -> Chan Msg -> IO ()
-mainLoop sock chan = do
+mainLoop :: Socket -> Chan Msg -> IORef Int-> IO ()
+mainLoop sock chan numb = do
   conn <- accept sock
   hdl <- setHandle conn
   -- line above waits until join then runs line below
-  forkIO (runConn conn hdl chan [] )
-  mainLoop sock chan
+  forkIO (runConn conn hdl chan [] numb)
+  mainLoop sock chan numb
 
 setHandle :: (Socket,SockAddr) -> IO Handle
 setHandle (sock,addr) = do
@@ -55,12 +58,18 @@ getFirst (x,y) = x
 getSecond :: (String, Chan Msg) -> Chan Msg
 getSecond (x,y) = y
 
+incRef :: IORef Int -> IO ()
+incRef var = do
+    val <- readIORef var
+    writeIORef var (val+1)
+
 -- offers lobby for the user to choose their chan
 -- Parameters: Socket, Handle of socket, Current Chan, List of Existing Chans, List of existing chan names
-runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> [(String, Chan Msg)] -> IO()
-runConn (sock, address) hdl chan chanList = do
+runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> [(String, Chan Msg)] -> IORef Int -> IO()
+runConn (sock, address) hdl chan chanList numb = do
   message <- fmap init (hGetLine hdl)
   messageType <- processMessage message
+  incRef numb
   case messageType of
     0 -> hClose hdl
     1 -> sendHeloText address hdl
@@ -76,8 +85,10 @@ runConn (sock, address) hdl chan chanList = do
             Just x -> putStrLn "Found Something"
           putStrLn "Good job"
     5 -> putStrLn "Leaving chatroom"
-    6 -> putStrLn "handle other messages"
-    otherwise -> runConn (sock, address) hdl chan chanList
+    6 -> do
+          val <- readIORef numb
+          putStrLn $ show val
+    otherwise -> runConn (sock, address) hdl chan chanList numb
 
 -- getOrCreateChan:: String -> [(String, Chan Msg)] -> IO Chan Msg
 -- getOrCreateChan chanName chanList = do
