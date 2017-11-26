@@ -37,7 +37,7 @@ type Msg = (Int, String)
 -- stringChan :: Chan Msg-> String
 -- stringChan (i s)= show i
 
-mainLoop :: Socket -> Chan Msg -> IORef [(String, Chan a)]-> IO ()
+mainLoop :: Socket -> Chan Msg -> IORef [(String, Chan Msg)]-> IO ()
 mainLoop sock chan numb = do
   conn <- accept sock
   hdl <- setHandle conn
@@ -47,7 +47,6 @@ mainLoop sock chan numb = do
 
 setHandle :: (Socket,SockAddr) -> IO Handle
 setHandle (sock,addr) = do
-  putStr "setting Handle"
   hdl <- socketToHandle sock ReadWriteMode
   hSetBuffering hdl NoBuffering
   return hdl
@@ -58,20 +57,18 @@ getFirst (x,y) = x
 getSecond :: (String, Chan Msg) -> Chan Msg
 getSecond (x,y) = y
 
-incRef :: IORef [(String, Chan a)] -> IO ()
-incRef var = do
-    myChan <- newChan
+addToChanList :: String -> Chan Msg -> IORef [(String, Chan Msg)] -> IO ()
+addToChanList newChanName myChan var = do
     val <- readIORef var
-    let newVal = ("myChan",myChan):val
+    let newVal = (newChanName,myChan):val
     writeIORef var newVal
 
 -- offers lobby for the user to choose their chan
 -- Parameters: Socket, Handle of socket, Current Chan, List of Existing Chans, List of existing chan names
-runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> [(String, Chan Msg)] -> IORef [(String, Chan a)] -> IO()
+runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> [(String, Chan Msg)] -> IORef [(String, Chan Msg)] -> IO()
 runConn (sock, address) hdl chan chanList numb = do
   message <- fmap init (hGetLine hdl)
   messageType <- processMessage message
-  incRef numb
   case messageType of
     0 -> hClose hdl
     1 -> sendHeloText address hdl
@@ -81,20 +78,25 @@ runConn (sock, address) hdl chan chanList numb = do
           putStrLn "Joining chatroom"
           let clientName = getClientName message
           let chatroomName = getChatroomName message
-          let myNewChan = lookup chatroomName chanList
+          theChanList <- readIORef numb
+          let myNewChan = lookup chatroomName theChanList
           case myNewChan of
-            Nothing -> putStrLn "Found Nothing"
-            Just x -> putStrLn "Found Something"
+            Nothing -> do
+                        myChan <- newChan
+                        let chan = myChan
+                        putStrLn $ "Didnt find it [" ++ chatroomName ++"] in a lookup"
+                        addToChanList chatroomName myChan numb
+            Just x -> do
+                        chan <- dupChan x
+                        putStrLn "Found Something"
+                        runConn (sock, address) hdl chan chanList numb
           putStrLn "Good job"
     5 -> putStrLn "Leaving chatroom"
     6 -> do
           val <- readIORef numb
           putStrLn $ show $ length  val
-    otherwise -> runConn (sock, address) hdl chan chanList numb
-
--- getOrCreateChan:: String -> [(String, Chan Msg)] -> IO Chan Msg
--- getOrCreateChan chanName chanList = do
-
+  putStrLn "Got to bottom"
+  runConn (sock, address) hdl chan chanList numb
 
 getClientName :: String -> String
 getClientName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse x)) $ reverse x
