@@ -37,7 +37,7 @@ type Msg = (Int, String)
 -- stringChan :: Chan Msg-> String
 -- stringChan (i s)= show i
 
-mainLoop :: Socket -> Chan Msg -> Int -> IORef [(String, Chan Msg)]-> IO ()
+mainLoop :: Socket -> Chan Msg -> Int -> IORef [(Int, String, Chan Msg)]-> IO ()
 mainLoop sock chan msgNum chanListRef = do
   conn <- accept sock
   hdl <- setHandle conn
@@ -51,21 +51,31 @@ setHandle (sock,addr) = do
   hSetBuffering hdl NoBuffering
   return hdl
 
-getFirst :: (String, Chan Msg) -> String
-getFirst (x,y) = x
+getFirst :: (Int, String, Chan Msg) -> Int
+getFirst (x,y,z) = x
 
-getSecond :: (String, Chan Msg) -> Chan Msg
-getSecond (x,y) = y
+getSecond :: (Int, String, Chan Msg) -> String
+getSecond (x,y,z) = y
 
-addToChanList :: String -> Chan Msg -> IORef [(String, Chan Msg)] -> IO ()
+getThird :: (Int, String, Chan Msg) -> Chan Msg
+getThird (x,y,z) = z
+
+addToChanList :: String -> Chan Msg -> IORef [(Int, String, Chan Msg)] -> IO ()
 addToChanList newChanName myChan var = do
     val <- readIORef var
-    let newVal = (newChanName,myChan):val
+    let ref = length val + 1
+    let newVal = (ref, newChanName,myChan):val
     writeIORef var newVal
+
+myLookup :: String -> [(Int, String, Chan Msg)] -> Maybe (Chan Msg)
+myLookup name [] = Nothing
+myLookup name (x:ys)
+                  | name == getSecond x = Just $ getThird x
+                  | otherwise = myLookup name ys
 
 -- offers lobby for the user to choose their chan
 -- Parameters: Socket, Handle of socket, Current Chan, List of Existing Chans, List of existing chan names
-runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> Int -> IORef [(String, Chan Msg)] -> IO()
+runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> Int -> IORef [(Int, String, Chan Msg)] -> IO()
 runConn (sock, address) hdl chan msgNum chanListRef = do
   let broadcast msg = writeChan chan (msgNum, msg)
   message <- fmap init (hGetLine hdl)
@@ -81,7 +91,7 @@ runConn (sock, address) hdl chan msgNum chanListRef = do
           let clientName = getClientName message
           let chatroomName = getChatroomName message
           theChanList <- readIORef chanListRef
-          let myNewChan = lookup chatroomName theChanList
+          let myNewChan = myLookup chatroomName theChanList
           case myNewChan of
             Nothing -> do
                         myChan <- newChan
@@ -128,7 +138,6 @@ getFirstLine x = take (unpackJust (elemIndex '\\' $ x)) $ x
 getChatroomName :: String -> String
 getChatroomName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse (getFirstLine x))) $ reverse (getFirstLine x)
 
--- joinChatroom :: String -> [Chan Msg] -> ()
 
 processMessage :: String -> IO Integer
 processMessage msg
