@@ -97,52 +97,10 @@ sendMessage bigMessage clientName msgNum chan = do
                           let message = "CHAT: " ++ ref ++"\nCLIENT_NAME: " ++ clientName ++ "\nMESSAGE: " ++ messageText
                           writeChan chan (msgNum, message)
 
-runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> Int -> Int -> IORef [(Int, String)] -> IORef [(Int, String, Chan Msg)] -> IO()
-runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
-  message <- fmap init (hGetLine hdl)
-  messageType <- processMessage $ getCommand message
-  case messageType of
-    0 -> hClose hdl
-    1 -> sendHeloText address hdl
-    2 -> do
-          clientList <- readIORef clientListRef
-          sendMessage message (unpackJustString $ getClientNameById clientNum clientList) msgNum chan
-    3 -> do
-          putStrLn "Disconnecting"
-          hClose hdl
-    4 -> do
-          putStrLn "Joining chatroom"
-          let clientName = getClientName message
-          addClient clientName clientListRef
-          let chatroomName = getChatroomName message
-          theChanList <- readIORef chanListRef
-          let myNewChan = getChanByString chatroomName theChanList
-          case myNewChan of
-            Nothing -> do
-                        myChan <- newChan
-                        addToChanList chatroomName myChan chanListRef
-                        theChanList <- readIORef chanListRef
-                        hPutStrLn hdl $ printJoinedRoom chatroomName clientNum address theChanList
-                        reader <- forkIO $ fix $ \loop -> do
-                            (nextNum, line) <- readChan myChan
-                            when (msgNum /= nextNum) $ hPutStrLn hdl line
-                            loop
-                        runConn (sock, address) hdl myChan msgNum clientNum clientListRef chanListRef
-            Just x -> do
-                        myChan <- dupChan x
-                        hPutStrLn hdl $ printJoinedRoom chatroomName clientNum address theChanList
-                        reader <- forkIO $ fix $ \loop -> do
-                            (nextNum, line) <- readChan myChan
-                            when (msgNum /= nextNum) $ hPutStrLn hdl line
-                            loop
-                        runConn (sock, address) hdl myChan msgNum clientNum clientListRef chanListRef
-    5 -> do
-          theChanList <- readIORef chanListRef
-          hPutStrLn hdl $ printLeftRoom message clientNum
-          myChan <- newChan
-          runConn (sock, address) hdl myChan msgNum clientNum clientListRef chanListRef
-    6 -> errorMessage hdl 1
-  runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef
+errorCheckMessage :: Integer -> [String] -> Bool
+errorCheckMessage 2 l = map getCommand l == ["CHAT","JOIN_ID", "CLIENT_NAME","MESSAGE"]
+errorCheckMessage 4 l = map getCommand l == ["JOIN_CHATROOM","CLIENT_IP", "PORT","CLIENT_NAME"]
+errorCheckMessage _ _ = True
 
 processMessage :: String -> IO Integer
 processMessage msg
@@ -154,9 +112,56 @@ processMessage msg
     | "LEAVE_CHATROOM" == msg = return 5
     | otherwise = return 6
 
-errorMessage :: Handle -> Int -> IO()
-errorMessage hdl 1 = hPutStr hdl "ERROR CODE: 1\nERROR_DESCRIPTION: Invalid input"
-errorMessage hdl _ = hPutStr hdl "ERROR CODE: 1\nERROR_DESCRIPTION: Undefined error"
+runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> Int -> Int -> IORef [(Int, String)] -> IORef [(Int, String, Chan Msg)] -> IO()
+runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
+  message <- fmap init (hGetLine hdl)
+  messageType <- processMessage $ getCommand message
+  let isValid = errorCheckMessage messageType $ lines message
+
+  if isValid then do
+      case messageType of
+        0 -> hClose hdl
+        1 -> sendHeloText address hdl
+        2 -> do
+              clientList <- readIORef clientListRef
+              sendMessage message (unpackJustString $ getClientNameById clientNum clientList) msgNum chan
+        3 -> do
+              putStrLn "Disconnecting"
+              hClose hdl
+        4 -> do
+              putStrLn "Joining chatroom"
+              let clientName = getClientName message
+              addClient clientName clientListRef
+              let chatroomName = getChatroomName message
+              theChanList <- readIORef chanListRef
+              let myNewChan = getChanByString chatroomName theChanList
+              case myNewChan of
+                Nothing -> do
+                            myChan <- newChan
+                            addToChanList chatroomName myChan chanListRef
+                            theChanList <- readIORef chanListRef
+                            hPutStrLn hdl $ printJoinedRoom chatroomName clientNum address theChanList
+                            reader <- forkIO $ fix $ \loop -> do
+                                (nextNum, line) <- readChan myChan
+                                when (msgNum /= nextNum) $ hPutStrLn hdl line
+                                loop
+                            runConn (sock, address) hdl myChan msgNum clientNum clientListRef chanListRef
+                Just x -> do
+                            myChan <- dupChan x
+                            hPutStrLn hdl $ printJoinedRoom chatroomName clientNum address theChanList
+                            reader <- forkIO $ fix $ \loop -> do
+                                (nextNum, line) <- readChan myChan
+                                when (msgNum /= nextNum) $ hPutStrLn hdl line
+                                loop
+                            runConn (sock, address) hdl myChan msgNum clientNum clientListRef chanListRef
+        5 -> do
+              theChanList <- readIORef chanListRef
+              hPutStrLn hdl $ printLeftRoom message clientNum
+              myChan <- newChan
+              runConn (sock, address) hdl myChan msgNum clientNum clientListRef chanListRef
+        6 -> errorMessage hdl 1
+      runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef
+      else errorMessage hdl 2
 
 printJoinedRoom :: String -> Int -> SockAddr -> [(Int, String, Chan Msg)]  -> String
 printJoinedRoom roomName clientNum address chanList = do
@@ -176,7 +181,7 @@ getClientName :: String -> String
 getClientName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse x)) $ reverse x
 
 getFirstLine :: String -> String
-getFirstLine x = take (unpackJust (elemIndex '\\' $ x)) $ x
+getFirstLine x = head $ lines x
 
 getCommand :: String -> String
 getCommand x = take (unpackJust (elemIndex ':' $ x)) $ x
@@ -200,3 +205,7 @@ getSockAddress x = take (unpackJust (elemIndex ':' $ show x)) $ show x
 
 sendHeloText :: SockAddr -> Handle -> IO()
 sendHeloText address hdl = hPutStr hdl ("HELO text\nIP: "  ++ getSockAddress address ++ "\n" ++ "Port: " ++ getSockPort address ++ "\nStudentID: 13324607\n")
+
+errorMessage :: Handle -> Int -> IO()
+errorMessage hdl 1 = hPutStr hdl "ERROR CODE: 1\nERROR_DESCRIPTION: Invalid input"
+errorMessage hdl x = hPutStr hdl "ERROR CODE: 1\nERROR_DESCRIPTION: Undefined error"
