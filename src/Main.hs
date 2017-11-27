@@ -30,20 +30,20 @@ main = do
     (_, _) <- readChan listeningChan
     loop
   putStr "calling mainloop no idea why\n"
-  mainLoop sock listeningChan referenceList
+  mainLoop sock listeningChan 0 referenceList
 
 type Msg = (Int, String)
 
 -- stringChan :: Chan Msg-> String
 -- stringChan (i s)= show i
 
-mainLoop :: Socket -> Chan Msg -> IORef [(String, Chan Msg)]-> IO ()
-mainLoop sock chan numb = do
+mainLoop :: Socket -> Chan Msg -> Int -> IORef [(String, Chan Msg)]-> IO ()
+mainLoop sock chan msgNum chanListRef = do
   conn <- accept sock
   hdl <- setHandle conn
   -- line above waits until join then runs line below
-  forkIO (runConn conn hdl chan [] numb)
-  mainLoop sock chan numb
+  forkIO (runConn conn hdl chan msgNum chanListRef)
+  mainLoop sock chan (msgNum+1) chanListRef
 
 setHandle :: (Socket,SockAddr) -> IO Handle
 setHandle (sock,addr) = do
@@ -65,38 +65,61 @@ addToChanList newChanName myChan var = do
 
 -- offers lobby for the user to choose their chan
 -- Parameters: Socket, Handle of socket, Current Chan, List of Existing Chans, List of existing chan names
-runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> [(String, Chan Msg)] -> IORef [(String, Chan Msg)] -> IO()
-runConn (sock, address) hdl chan chanList numb = do
+runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> Int -> IORef [(String, Chan Msg)] -> IO()
+runConn (sock, address) hdl chan msgNum chanListRef = do
+  let broadcast msg = writeChan chan (msgNum, msg)
   message <- fmap init (hGetLine hdl)
   messageType <- processMessage message
   case messageType of
     0 -> hClose hdl
     1 -> sendHeloText address hdl
-    2 -> putStrLn "Handling CHAT message"
+    2 -> do
+          putStrLn "Handling CHAT message"
+          broadcast message
     3 -> putStrLn "Disconnecting"
     4 -> do
           putStrLn "Joining chatroom"
           let clientName = getClientName message
           let chatroomName = getChatroomName message
-          theChanList <- readIORef numb
+          theChanList <- readIORef chanListRef
           let myNewChan = lookup chatroomName theChanList
           case myNewChan of
             Nothing -> do
                         myChan <- newChan
-                        let chan = myChan
                         putStrLn $ "Didnt find it [" ++ chatroomName ++"] in a lookup"
-                        addToChanList chatroomName myChan numb
+                        addToChanList chatroomName myChan chanListRef
+
+                        reader <- forkIO $ fix $ \loop -> do
+                            hPutStrLn hdl "Reader loop"
+                          -- Read the next value from the Chan. Blocks when the channel is empty.
+                          -- Since the read end of a channel is an MVar, this operation inherits fairness guarantees of MVars (e.g. threads blocked in this operation are woken up in FIFO order).
+                            (nextNum, line) <- readChan myChan
+                            hPutStrLn hdl "read chan comline, about to broadcast it"
+                            when (msgNum /= nextNum) $ hPutStrLn hdl line
+                            hPutStrLn hdl "just put line, calling loop"
+                            loop
+
+                        runConn (sock, address) hdl myChan msgNum chanListRef
             Just x -> do
-                        chan <- dupChan x
+                        myChan <- dupChan x
                         putStrLn "Found Something"
-                        runConn (sock, address) hdl chan chanList numb
+
+                        reader <- forkIO $ fix $ \loop -> do
+                            hPutStrLn hdl "Reader loop"
+                          -- Read the next value from the Chan. Blocks when the channel is empty.
+                          -- Since the read end of a channel is an MVar, this operation inherits fairness guarantees of MVars (e.g. threads blocked in this operation are woken up in FIFO order).
+                            (nextNum, line) <- readChan myChan
+                            when (msgNum /= nextNum) $ hPutStrLn hdl line
+                            loop
+
+                        runConn (sock, address) hdl myChan msgNum chanListRef
           putStrLn "Good job"
     5 -> putStrLn "Leaving chatroom"
     6 -> do
-          val <- readIORef numb
-          putStrLn $ show $ length  val
+          putStrLn "broadcasting message"
+          broadcast message
   putStrLn "Got to bottom"
-  runConn (sock, address) hdl chan chanList numb
+  runConn (sock, address) hdl chan msgNum chanListRef
 
 getClientName :: String -> String
 getClientName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse x)) $ reverse x
