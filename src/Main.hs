@@ -129,8 +129,6 @@ runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
                         hPutStrLn hdl $ printJoinedRoom chatroomName clientNum address theChanList
                         reader <- forkIO $ fix $ \loop -> do
                             putStrLn "Reader loop"
-                          -- Read the next value from the Chan. Blocks when the channel is empty.
-                          -- Since the read end of a channel is an MVar, this operation inherits fairness guarantees of MVars (e.g. threads blocked in this operation are woken up in FIFO order).
                             (nextNum, line) <- readChan myChan
                             when (msgNum /= nextNum) $ hPutStrLn hdl line
                             loop
@@ -140,8 +138,6 @@ runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
                         hPutStrLn hdl $ printJoinedRoom chatroomName clientNum address theChanList
                         reader <- forkIO $ fix $ \loop -> do
                             putStrLn "Reader loop"
-                          -- Read the next value from the Chan. Blocks when the channel is empty.
-                          -- Since the read end of a channel is an MVar, this operation inherits fairness guarantees of MVars (e.g. threads blocked in this operation are woken up in FIFO order).
                             (nextNum, line) <- readChan myChan
                             when (msgNum /= nextNum) $ hPutStrLn hdl line
                             loop
@@ -151,11 +147,12 @@ runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
           hPutStrLn hdl $ printLeftRoom message clientNum
           myChan <- newChan
           runConn (sock, address) hdl myChan msgNum clientNum clientListRef chanListRef
-    6 -> do
-          putStrLn "broadcasting message"
-          runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef
-  putStrLn "Got to bottom"
+    6 -> errorMessage hdl 1
   runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef
+
+errorMessage :: Handle -> Int -> IO()
+errorMessage hdl 1 = hPutStr hdl "ERROR CODE: 1\nERROR_DESCRIPTION: Invalid input"
+errorMessage hdl _ = hPutStr hdl "ERROR CODE: 1\nERROR_DESCRIPTION: Undefined error"
 
 printJoinedRoom :: String -> Int -> SockAddr -> [(Int, String, Chan Msg)]  -> String
 printJoinedRoom roomName clientNum address chanList = do
@@ -167,9 +164,9 @@ printJoinedRoom roomName clientNum address chanList = do
 
 printLeftRoom :: String -> Int -> String
 printLeftRoom msg clientNum = do
-                                    let roomRef = getChatroomName msg
-                                    let clientRef = show clientNum
-                                    "LEFT_CHATROOM: " ++ roomRef ++ "\nJOIN_ID:" ++ clientRef
+                              let roomRef = getChatroomName msg
+                              let clientRef = show clientNum
+                              "LEFT_CHATROOM: " ++ roomRef ++ "\nJOIN_ID:" ++ clientRef
 
 getClientName :: String -> String
 getClientName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse x)) $ reverse x
@@ -180,7 +177,6 @@ getFirstLine x = take (unpackJust (elemIndex '\\' $ x)) $ x
 getChatroomName :: String -> String
 getChatroomName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse (getFirstLine x))) $ reverse (getFirstLine x)
 
-
 processMessage :: String -> IO Integer
 processMessage msg
     | substring "KILL_SERVICE" msg = return 0
@@ -190,11 +186,6 @@ processMessage msg
     | substring "JOIN_CHATROOM" msg = return 4
     | substring "LEAVE_CHATROOM" msg = return 5
     | otherwise = return 6
-
--- chatLoop :: (Socket, SockAddr) -> Chan Msg -> Int -> IO()
-
-
--- joinOrCreateChan :: String -> Chan Msg
 
 substring :: String -> String -> Bool
 substring (x:xs) [] = False
@@ -221,7 +212,6 @@ getSockPort x = tail $ drop (unpackJust (elemIndex ':' $ show x)) $ show x
 
 getSockAddress :: SockAddr -> String
 getSockAddress x = take (unpackJust (elemIndex ':' $ show x)) $ show x
-
 
 sendHeloText :: SockAddr -> Handle -> IO()
 sendHeloText address hdl = hPutStr hdl ("HELO text\nIP: "  ++ getSockAddress address ++ "\n" ++ "Port: " ++ getSockPort address ++ "\nStudentID: 13324607\n")
