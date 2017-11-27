@@ -26,24 +26,23 @@ main = do
 
   -- this loop waits for connections, line 2 reads chan
   _ <- forkIO $ fix $ \loop -> do
-    putStr "loop in main\n"
     (_, _) <- readChan listeningChan
     loop
-  putStr "calling mainloop no idea why\n"
-  mainLoop sock listeningChan 0 referenceList
+
+  mainLoop sock listeningChan 0 1 referenceList
 
 type Msg = (Int, String)
 
 -- stringChan :: Chan Msg-> String
 -- stringChan (i s)= show i
 
-mainLoop :: Socket -> Chan Msg -> Int -> IORef [(Int, String, Chan Msg)]-> IO ()
-mainLoop sock chan msgNum chanListRef = do
+mainLoop :: Socket -> Chan Msg -> Int -> Int -> IORef [(Int, String, Chan Msg)]-> IO ()
+mainLoop sock chan msgNum clientNum chanListRef = do
   conn <- accept sock
   hdl <- setHandle conn
   -- line above waits until join then runs line below
-  forkIO (runConn conn hdl chan msgNum chanListRef)
-  mainLoop sock chan (msgNum+1) chanListRef
+  forkIO (runConn conn hdl chan msgNum clientNum chanListRef)
+  mainLoop sock chan (msgNum+1) (clientNum + 1) chanListRef
 
 setHandle :: (Socket,SockAddr) -> IO Handle
 setHandle (sock,addr) = do
@@ -79,8 +78,8 @@ myRefLookup name (x:ys)
                   | otherwise = myRefLookup name ys
 -- offers lobby for the user to choose their chan
 -- Parameters: Socket, Handle of socket, Current Chan, List of Existing Chans, List of existing chan names
-runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> Int -> IORef [(Int, String, Chan Msg)] -> IO()
-runConn (sock, address) hdl chan msgNum chanListRef = do
+runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> Int -> Int -> IORef [(Int, String, Chan Msg)] -> IO()
+runConn (sock, address) hdl chan msgNum clientNum chanListRef = do
   let broadcast msg = writeChan chan (msgNum, msg)
   message <- fmap init (hGetLine hdl)
   messageType <- processMessage message
@@ -109,8 +108,8 @@ runConn (sock, address) hdl chan msgNum chanListRef = do
                             when (msgNum /= nextNum) $ hPutStrLn hdl line
                             loop
                         theChanList <- readIORef chanListRef
-                        hPutStrLn hdl $ printJoinedRoom chatroomName address theChanList
-                        runConn (sock, address) hdl myChan msgNum chanListRef
+                        hPutStrLn hdl $ printJoinedRoom chatroomName clientNum address theChanList
+                        runConn (sock, address) hdl myChan msgNum clientNum chanListRef
             Just x -> do
                         myChan <- dupChan x
                         reader <- forkIO $ fix $ \loop -> do
@@ -119,21 +118,22 @@ runConn (sock, address) hdl chan msgNum chanListRef = do
                             (nextNum, line) <- readChan myChan
                             when (msgNum /= nextNum) $ hPutStrLn hdl line
                             loop
-                        hPutStrLn hdl $ printJoinedRoom chatroomName address theChanList
-                        runConn (sock, address) hdl myChan msgNum chanListRef
+                        hPutStrLn hdl $ printJoinedRoom chatroomName clientNum address theChanList
+                        runConn (sock, address) hdl myChan msgNum clientNum chanListRef
     5 -> putStrLn "Leaving chatroom"
     6 -> do
           putStrLn "broadcasting message"
           broadcast message
   putStrLn "Got to bottom"
-  runConn (sock, address) hdl chan msgNum chanListRef
+  runConn (sock, address) hdl chan msgNum clientNum chanListRef
 
-printJoinedRoom :: String -> SockAddr -> [(Int, String, Chan Msg)]  -> String
-printJoinedRoom roomName address chanList = do
+printJoinedRoom :: String -> Int -> SockAddr -> [(Int, String, Chan Msg)]  -> String
+printJoinedRoom roomName clientNum address chanList = do
                                     let ip = getSockAddress address
                                     let port = getSockPort address
                                     let roomRef = show $ myRefLookup roomName chanList
-                                    "JOINED_CHATROOM: " ++ roomName ++ "\nSERVER_IP:" ++ ip ++"\nPORT: "++ port ++ "\nROOM_REF: "++ roomRef ++ "\nJOIN_ID: [integer that uniquely identifies client joining]"
+                                    let clientRef = show clientNum
+                                    "JOINED_CHATROOM: " ++ roomName ++ "\nSERVER_IP:" ++ ip ++"\nPORT: "++ port ++ "\nROOM_REF: "++ roomRef ++ "\nJOIN_ID:" ++ clientRef
 
 getClientName :: String -> String
 getClientName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse x)) $ reverse x
