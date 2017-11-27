@@ -74,7 +74,6 @@ runConn (sock, address) hdl chan msgNum chanListRef = do
     0 -> hClose hdl
     1 -> sendHeloText address hdl
     2 -> do
-          putStrLn "Handling CHAT message"
           broadcast message
     3 -> putStrLn "Disconnecting"
     4 -> do
@@ -90,36 +89,35 @@ runConn (sock, address) hdl chan msgNum chanListRef = do
                         addToChanList chatroomName myChan chanListRef
 
                         reader <- forkIO $ fix $ \loop -> do
-                            hPutStrLn hdl "Reader loop"
                           -- Read the next value from the Chan. Blocks when the channel is empty.
                           -- Since the read end of a channel is an MVar, this operation inherits fairness guarantees of MVars (e.g. threads blocked in this operation are woken up in FIFO order).
                             (nextNum, line) <- readChan myChan
-                            hPutStrLn hdl "read chan comline, about to broadcast it"
                             when (msgNum /= nextNum) $ hPutStrLn hdl line
-                            hPutStrLn hdl "just put line, calling loop"
                             loop
-
+                        hPutStrLn hdl $ printJoinedRoom chatroomName address
                         runConn (sock, address) hdl myChan msgNum chanListRef
             Just x -> do
                         myChan <- dupChan x
-                        putStrLn "Found Something"
-
                         reader <- forkIO $ fix $ \loop -> do
-                            hPutStrLn hdl "Reader loop"
                           -- Read the next value from the Chan. Blocks when the channel is empty.
                           -- Since the read end of a channel is an MVar, this operation inherits fairness guarantees of MVars (e.g. threads blocked in this operation are woken up in FIFO order).
                             (nextNum, line) <- readChan myChan
                             when (msgNum /= nextNum) $ hPutStrLn hdl line
                             loop
-
+                        hPutStrLn hdl $ printJoinedRoom chatroomName address
                         runConn (sock, address) hdl myChan msgNum chanListRef
-          putStrLn "Good job"
     5 -> putStrLn "Leaving chatroom"
     6 -> do
           putStrLn "broadcasting message"
           broadcast message
   putStrLn "Got to bottom"
   runConn (sock, address) hdl chan msgNum chanListRef
+
+printJoinedRoom :: String -> SockAddr -> String
+printJoinedRoom roomName address = do
+                                    let ip = getSockAddress address
+                                    let port = getSockPort address
+                                    "JOINED_CHATROOM: " ++ roomName ++ "\nSERVER_IP:" ++ ip ++"\nPORT: "++ port ++ "\nROOM_REF: [integer that uniquely identifies chat room on server]\nJOIN_ID: [integer that uniquely identifies client joining]"
 
 getClientName :: String -> String
 getClientName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse x)) $ reverse x
