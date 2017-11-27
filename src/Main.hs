@@ -93,17 +93,14 @@ sendMessage :: String -> String -> Int -> Chan Msg -> IO()
 sendMessage bigMessage clientName msgNum chan = do
                           putStrLn "SENDING MESSAGE"
                           let ref = getChatroomName bigMessage
-                          -- let clientName = "client name"
                           let messageText = getClientName bigMessage
                           let message = "CHAT: " ++ ref ++"\nCLIENT_NAME: " ++ clientName ++ "\nMESSAGE: " ++ messageText
                           writeChan chan (msgNum, message)
 
--- offers lobby for the user to choose their chan
--- Parameters: Socket, Handle of socket, Current Chan, List of Existing Chans, List of existing chan names
 runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> Int -> Int -> IORef [(Int, String)] -> IORef [(Int, String, Chan Msg)] -> IO()
 runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
   message <- fmap init (hGetLine hdl)
-  messageType <- processMessage message
+  messageType <- processMessage $ getCommand message
   case messageType of
     0 -> hClose hdl
     1 -> sendHeloText address hdl
@@ -123,12 +120,10 @@ runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
           case myNewChan of
             Nothing -> do
                         myChan <- newChan
-                        putStrLn $ "Didnt find it [" ++ chatroomName ++"] in a lookup"
                         addToChanList chatroomName myChan chanListRef
                         theChanList <- readIORef chanListRef
                         hPutStrLn hdl $ printJoinedRoom chatroomName clientNum address theChanList
                         reader <- forkIO $ fix $ \loop -> do
-                            putStrLn "Reader loop"
                             (nextNum, line) <- readChan myChan
                             when (msgNum /= nextNum) $ hPutStrLn hdl line
                             loop
@@ -137,7 +132,6 @@ runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
                         myChan <- dupChan x
                         hPutStrLn hdl $ printJoinedRoom chatroomName clientNum address theChanList
                         reader <- forkIO $ fix $ \loop -> do
-                            putStrLn "Reader loop"
                             (nextNum, line) <- readChan myChan
                             when (msgNum /= nextNum) $ hPutStrLn hdl line
                             loop
@@ -149,6 +143,16 @@ runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
           runConn (sock, address) hdl myChan msgNum clientNum clientListRef chanListRef
     6 -> errorMessage hdl 1
   runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef
+
+processMessage :: String -> IO Integer
+processMessage msg
+    | "KILL_SERVICE" == msg = return 0
+    | "HELO_text" == msg = return 1
+    | "CHAT:" == msg = return 2
+    | "DISCONNECT" == msg = return 3
+    | "JOIN_CHATROOM" == msg = return 4
+    | "LEAVE_CHATROOM" == msg = return 5
+    | otherwise = return 6
 
 errorMessage :: Handle -> Int -> IO()
 errorMessage hdl 1 = hPutStr hdl "ERROR CODE: 1\nERROR_DESCRIPTION: Invalid input"
@@ -174,30 +178,11 @@ getClientName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse x))
 getFirstLine :: String -> String
 getFirstLine x = take (unpackJust (elemIndex '\\' $ x)) $ x
 
+getCommand :: String -> String
+getCommand x = take (unpackJust (elemIndex ':' $ x)) $ x
+
 getChatroomName :: String -> String
 getChatroomName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse (getFirstLine x))) $ reverse (getFirstLine x)
-
-processMessage :: String -> IO Integer
-processMessage msg
-    | substring "KILL_SERVICE" msg = return 0
-    | substring "HELO_text" msg = return 1
-    | substring "CHAT:" msg = return 2
-    | substring "DISCONNECT" msg = return 3
-    | substring "JOIN_CHATROOM" msg = return 4
-    | substring "LEAVE_CHATROOM" msg = return 5
-    | otherwise = return 6
-
-substring :: String -> String -> Bool
-substring (x:xs) [] = False
-substring xs ys
-    | prefix xs ys = True
-    | substring xs (tail ys) = True
-    | otherwise = False
-
-prefix :: String -> String -> Bool
-prefix [] ys = True
-prefix (x:xs) [] = False
-prefix (x:xs) (y:ys) = (x == y) && prefix xs ys
 
 unpackJustString :: Maybe String -> String
 unpackJustString (Just a) = a
