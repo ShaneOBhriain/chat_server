@@ -34,9 +34,6 @@ main = do
 
 type Msg = (Int, String)
 
--- stringChan :: Chan Msg-> String
--- stringChan (i s)= show i
-
 mainLoop :: Socket -> Chan Msg -> Int -> Int -> IORef [(Int, String)] -> IORef [(Int, String, Chan Msg)]-> IO ()
 mainLoop sock chan msgNum clientNum clientListRef chanListRef = do
   conn <- accept sock
@@ -74,15 +71,6 @@ setHandle (sock,addr) = do
   hSetBuffering hdl NoBuffering
   return hdl
 
-getFirst :: (Int, String, Chan Msg) -> Int
-getFirst (x,y,z) = x
-
-getSecond :: (Int, String, Chan Msg) -> String
-getSecond (x,y,z) = y
-
-getThird :: (Int, String, Chan Msg) -> Chan Msg
-getThird (x,y,z) = z
-
 addToChanList :: String -> Chan Msg -> IORef [(Int, String, Chan Msg)] -> IO ()
 addToChanList newChanName myChan var = do
     val <- readIORef var
@@ -92,13 +80,13 @@ addToChanList newChanName myChan var = do
 
 getChanByString :: String -> [(Int, String, Chan Msg)] -> Maybe (Chan Msg)
 getChanByString name [] = Nothing
-getChanByString name (x:ys)
-                  | name == getSecond x = Just $ getThird x
+getChanByString name ((a,b,c):ys)
+                  | name == b = Just $ c
                   | otherwise = getChanByString name ys
 
 getChanRefByString :: String -> [(Int, String, Chan Msg)] -> Int
-getChanRefByString name (x:ys)
-                  | name == getSecond x = getFirst x
+getChanRefByString name ((a,b,c):ys)
+                  | name == b = a
                   | otherwise = getChanRefByString name ys
 
 sendMessage :: String -> String -> Int -> Chan Msg -> IO()
@@ -109,10 +97,6 @@ sendMessage bigMessage clientName msgNum chan = do
                           let messageText = getClientName bigMessage
                           let message = "CHAT: " ++ ref ++"\nCLIENT_NAME: " ++ clientName ++ "\nMESSAGE: " ++ messageText
                           writeChan chan (msgNum, message)
--- CHAT: [ROOM_REF]
--- 		  CLIENT_NAME: [string identifying client user]
--- 		  MESSAGE: [string terminated with '\n\n']
-
 
 -- offers lobby for the user to choose their chan
 -- Parameters: Socket, Handle of socket, Current Chan, List of Existing Chans, List of existing chan names
@@ -125,7 +109,6 @@ runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
     1 -> sendHeloText address hdl
     2 -> do
           clientList <- readIORef clientListRef
-          putStr $ "GETTING CLiENT NAME FROM ID: " ++ (show clientNum)
           sendMessage message (unpackJustString $ getClientNameById clientNum clientList) msgNum chan
     3 -> do
           putStrLn "Disconnecting"
