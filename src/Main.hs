@@ -91,7 +91,9 @@ runConn (sock, address) hdl chan msgNum clientNum chanListRef = do
     1 -> sendHeloText address hdl
     2 -> do
           broadcast message
-    3 -> putStrLn "Disconnecting"
+    3 -> do
+          putStrLn "Disconnecting"
+          hClose hdl
     4 -> do
           putStrLn "Joining chatroom"
           let clientName = getClientName message
