@@ -67,12 +67,16 @@ addToChanList newChanName myChan var = do
     let newVal = (ref, newChanName,myChan):val
     writeIORef var newVal
 
-myLookup :: String -> [(Int, String, Chan Msg)] -> Maybe (Chan Msg)
-myLookup name [] = Nothing
-myLookup name (x:ys)
+myChanLookup :: String -> [(Int, String, Chan Msg)] -> Maybe (Chan Msg)
+myChanLookup name [] = Nothing
+myChanLookup name (x:ys)
                   | name == getSecond x = Just $ getThird x
-                  | otherwise = myLookup name ys
+                  | otherwise = myChanLookup name ys
 
+myRefLookup :: String -> [(Int, String, Chan Msg)] -> Int
+myRefLookup name (x:ys)
+                  | name == getSecond x = getFirst x
+                  | otherwise = myRefLookup name ys
 -- offers lobby for the user to choose their chan
 -- Parameters: Socket, Handle of socket, Current Chan, List of Existing Chans, List of existing chan names
 runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> Int -> IORef [(Int, String, Chan Msg)] -> IO()
@@ -91,7 +95,7 @@ runConn (sock, address) hdl chan msgNum chanListRef = do
           let clientName = getClientName message
           let chatroomName = getChatroomName message
           theChanList <- readIORef chanListRef
-          let myNewChan = myLookup chatroomName theChanList
+          let myNewChan = myChanLookup chatroomName theChanList
           case myNewChan of
             Nothing -> do
                         myChan <- newChan
@@ -104,7 +108,8 @@ runConn (sock, address) hdl chan msgNum chanListRef = do
                             (nextNum, line) <- readChan myChan
                             when (msgNum /= nextNum) $ hPutStrLn hdl line
                             loop
-                        hPutStrLn hdl $ printJoinedRoom chatroomName address
+                        theChanList <- readIORef chanListRef
+                        hPutStrLn hdl $ printJoinedRoom chatroomName address theChanList
                         runConn (sock, address) hdl myChan msgNum chanListRef
             Just x -> do
                         myChan <- dupChan x
@@ -114,7 +119,7 @@ runConn (sock, address) hdl chan msgNum chanListRef = do
                             (nextNum, line) <- readChan myChan
                             when (msgNum /= nextNum) $ hPutStrLn hdl line
                             loop
-                        hPutStrLn hdl $ printJoinedRoom chatroomName address
+                        hPutStrLn hdl $ printJoinedRoom chatroomName address theChanList
                         runConn (sock, address) hdl myChan msgNum chanListRef
     5 -> putStrLn "Leaving chatroom"
     6 -> do
@@ -123,11 +128,12 @@ runConn (sock, address) hdl chan msgNum chanListRef = do
   putStrLn "Got to bottom"
   runConn (sock, address) hdl chan msgNum chanListRef
 
-printJoinedRoom :: String -> SockAddr -> String
-printJoinedRoom roomName address = do
+printJoinedRoom :: String -> SockAddr -> [(Int, String, Chan Msg)]  -> String
+printJoinedRoom roomName address chanList = do
                                     let ip = getSockAddress address
                                     let port = getSockPort address
-                                    "JOINED_CHATROOM: " ++ roomName ++ "\nSERVER_IP:" ++ ip ++"\nPORT: "++ port ++ "\nROOM_REF: [integer that uniquely identifies chat room on server]\nJOIN_ID: [integer that uniquely identifies client joining]"
+                                    let roomRef = show $ myRefLookup roomName chanList
+                                    "JOINED_CHATROOM: " ++ roomName ++ "\nSERVER_IP:" ++ ip ++"\nPORT: "++ port ++ "\nROOM_REF: "++ roomRef ++ "\nJOIN_ID: [integer that uniquely identifies client joining]"
 
 getClientName :: String -> String
 getClientName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse x)) $ reverse x
