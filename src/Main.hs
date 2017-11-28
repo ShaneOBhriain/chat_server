@@ -137,9 +137,9 @@ runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
               hClose hdl
         4 -> do
               putStrLn "Joining chatroom"
-              let clientName = getClientName message
+              let clientName = dropCommand $ getFirstLine $ reverse message
+              let chatroomName = dropCommand (getFirstLine message)
               addClient clientName clientListRef
-              let chatroomName = getChatroomName message
               theChanList <- readIORef chanListRef
               let myNewChan = getChanByString chatroomName theChanList
               case myNewChan of
