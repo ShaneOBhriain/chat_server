@@ -139,7 +139,7 @@ getChanRefByString name ((a,b,c):ys)
                   | otherwise = getChanRefByString name ys
 
 sendMessage :: String -> Int -> Chan Msg -> IO()
-sendMessage bigMessage msgNum chan = writeChan chan (msgNum, unlines (head (lines bigMessage) : tail (tail (lines bigMessage))) )
+sendMessage bigMessage msgNum chan = writeChan chan (msgNum, unlines (head (myLines bigMessage) : tail (tail (myLines bigMessage))) )
 
 errorCheckMessage :: Integer -> [String] -> Bool
 errorCheckMessage 2 l = [getCommand x | x <- l] == ["CHAT","JOIN_ID", "CLIENT_NAME","MESSAGE"]
@@ -156,16 +156,27 @@ processMessage msg
     | "LEAVE_CHATROOM" == msg = return 5
     | otherwise = return 6
 
+replace :: Eq a => [a] -> [a] -> [a] -> [a]
+replace needle replacement haystack
+  = case begins haystack needle of
+      Just remains -> replacement ++ remains
+      Nothing      -> case haystack of
+                        []     -> []
+                        x : xs -> x : replace needle replacement xs
+
+myLines:: String -> [String]
+myLines = splitOn "|" . replace "\\n" "|" . replace "\\n" "|" . replace "\\n" "|"  . replace "\\n" "|"
+
+begins :: Eq a => [a] -> [a] -> Maybe [a]
+begins haystack []                = Just haystack
+begins (x : xs) (y : ys) | x == y = begins xs ys
+begins _        _                 = Nothing
+
 runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> Int -> Int -> IORef [(Int, String, [Int])] -> IORef [(Int, String, Chan Msg)] -> IO()
 runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
   message <- fmap init (hGetLine hdl)
   messageType <- processMessage $ getCommand message
-  putStrLn $ "Message Type: " ++ (show messageType)
-  putStrLn message
-  putStrLn $ show (length $ lines message)
-  putStrLn $ show (lines message)
-  putStrLn $ show $ [getCommand x | x <- lines message]
-  let isValid = errorCheckMessage messageType $ lines message
+  let isValid = errorCheckMessage messageType $ myLines message
 
   if isValid then do
       case messageType of
@@ -174,7 +185,7 @@ runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
         2 -> do
               theClientList <- readIORef clientListRef
               theChanList <- readIORef chanListRef
-              let chanRef = read (dropCommand $ head $ lines message)::Int
+              let chanRef = read (dropCommand $ head $ myLines message)::Int
               let receivingChan = unpackJustChan $ getChanByRef chanRef theChanList
               let client = getClientById clientNum theClientList
               if clientInRoom client chanRef then sendMessage message msgNum receivingChan
@@ -235,7 +246,7 @@ printJoinedRoom roomName clientNum address chanList = do
 getLeftRoomMessage :: String -> String
 getLeftRoomMessage msg  = do
                       let roomRef = dropCommand $ getFirstLine msg
-                      let joinId = dropCommand $ head $ tail (lines msg)
+                      let joinId = dropCommand $ head $ tail (myLines msg)
                       "LEFT_CHATROOM: " ++ roomRef ++ "\nJOIN_ID:" ++ joinId
 
 
@@ -243,10 +254,10 @@ getClientName :: String -> String
 getClientName x = tail $ reverse $ take (unpackJustInt(elemIndex ':' $ reverse x)) $ reverse x
 
 getFirstLine :: String -> String
-getFirstLine x = head $ lines x
+getFirstLine x = head $ myLines x
 
 getLineX :: Int -> String -> String
-getLineX x y = (lines y) !! (x+1)
+getLineX x y = (myLines y) !! (x+1)
 
 getCommand :: String -> String
 getCommand x = take (unpackJustInt(elemIndex ':' $ x)) $ x
@@ -277,7 +288,7 @@ sendHeloText :: SockAddr -> Handle -> IO()
 sendHeloText address hdl = hPutStr hdl ("HELO text\nIP: "  ++ getSockAddress address ++ "\n" ++ "Port: " ++ getSockPort address ++ "\nStudentID: 13324607\n")
 
 errorMessage :: Handle -> Int -> IO()
-errorMessage hdl 1 = hPutStr hdl "ERROR CODE: 1\nERROR_DESCRIPTION: Invalid input"
-errorMessage hdl 3 = hPutStr hdl "ERROR CODE: 3\nERROR_DESCRIPTION: No chatroom exists for specified ref."
-errorMessage hdl 4 = hPutStr hdl "ERROR CODE: 4\nERROR_DESCRIPTION: You are not a member of specified chatroom."
-errorMessage hdl x = hPutStr hdl "ERROR CODE: 1\nERROR_DESCRIPTION: Undefined error"
+errorMessage hdl 1 = hPutStrLn hdl "ERROR CODE: 1\nERROR_DESCRIPTION: Invalid input"
+errorMessage hdl 3 = hPutStrLn hdl "ERROR CODE: 3\nERROR_DESCRIPTION: No chatroom exists for specified ref."
+errorMessage hdl 4 = hPutStrLn hdl "ERROR CODE: 4\nERROR_DESCRIPTION: You are not a member of specified chatroom."
+errorMessage hdl x = hPutStrLn hdl "ERROR CODE: 1\nERROR_DESCRIPTION: Undefined error"
