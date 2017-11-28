@@ -34,7 +34,7 @@ main = do
 
 type Msg = (Int, String)
 
-mainLoop :: Socket -> Chan Msg -> Int -> Int -> IORef [(Int, String)] -> IORef [(Int, String, Chan Msg)]-> IO ()
+mainLoop :: Socket -> Chan Msg -> Int -> Int -> IORef [(Int, String, [Int])] -> IORef [(Int, String, Chan Msg)]-> IO ()
 mainLoop sock chan msgNum clientNum clientListRef chanListRef = do
   conn <- accept sock
   hdl <- setHandle conn
@@ -42,26 +42,55 @@ mainLoop sock chan msgNum clientNum clientListRef chanListRef = do
   forkIO (runConn conn hdl chan msgNum clientNum clientListRef chanListRef)
   mainLoop sock chan (msgNum+1) (clientNum + 1) clientListRef chanListRef
 
-addClient :: String -> IORef [(Int, String)] -> IO ()
+addClient :: String -> IORef [(Int, String, [Int])] -> IO ()
 addClient newClientName var = do
     val <- readIORef var
     let existingClient = getClientIdByName newClientName val
     case existingClient of
       Nothing -> do
         let ref = length val + 1
-        let newVal = (ref, newClientName):val
+        let newVal = (ref, newClientName, []):val
         writeIORef var newVal
       Just x -> putStrLn "Already exists"
 
-getClientIdByName :: String -> [(Int,String)] -> Maybe Int
+
+deleteN :: Int -> [a] -> [a]
+deleteN _ []     = []
+deleteN i (a:as)
+   | i == 0    = as
+   | otherwise = a : deleteN (i-1) as
+
+getClientRef :: (Int,String,[Int]) -> Int
+getClientRef (a,b,c) = a
+
+clientInRoom :: (Int,String,[Int]) -> Int -> Bool
+clientInRoom (a,b,c) roomRef = elem roomRef c
+
+addToClientRoomList :: Int -> Int -> IORef [(Int, String, [Int])] -> IO()
+addToClientRoomList joinId roomId clientListRef = do
+  clientList <- readIORef clientListRef
+  let indexOfClientToEdit = unpackJustInt $ elemIndex joinId (map getClientRef clientList)
+  let (a,b,c) = clientList !! indexOfClientToEdit
+  let newClient = (a,b,roomId:c)
+  let newClientList = deleteN indexOfClientToEdit clientList
+  let finalClientList = newClient:newClientList
+  writeIORef clientListRef finalClientList
+
+getClientById :: Int -> [(Int, String, [Int])] -> (Int,String,[Int])
+getClientById _ [] = (999,"Failed",[])
+getClientById ref ((a,b,c):ys)
+              | ref == a = (a,b,c)
+              | otherwise = getClientById ref ys
+
+getClientIdByName :: String -> [(Int,String,[Int])] -> Maybe Int
 getClientIdByName _ [] = Nothing
-getClientIdByName key ((a,b):ys)
+getClientIdByName key ((a,b,c):ys)
                   | key == b = Just a
                   | otherwise = getClientIdByName key ys
 
-getClientNameById :: Int -> [(Int,String)] -> Maybe String
+getClientNameById :: Int -> [(Int,String,[Int])] -> Maybe String
 getClientNameById _ [] = Nothing
-getClientNameById key ((a,b):ys)
+getClientNameById key ((a,b,c):ys)
                   | key == a = Just b
                   | otherwise = getClientNameById key ys
 
@@ -113,7 +142,7 @@ processMessage msg
     | "LEAVE_CHATROOM" == msg = return 5
     | otherwise = return 6
 
-runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> Int -> Int -> IORef [(Int, String)] -> IORef [(Int, String, Chan Msg)] -> IO()
+runConn :: (Socket, SockAddr) -> Handle -> Chan Msg -> Int -> Int -> IORef [(Int, String, [Int])] -> IORef [(Int, String, Chan Msg)] -> IO()
 runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
   message <- fmap init (hGetLine hdl)
   messageType <- processMessage $ getCommand message
@@ -129,9 +158,13 @@ runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
         0 -> hClose hdl
         1 -> sendHeloText address hdl
         2 -> do
+              theClientList <- readIORef clientListRef
               theChanList <- readIORef chanListRef
-              let receivingChan = unpackJustChan $ getChanByRef (read (dropCommand $ head $ lines message)::Int) theChanList
-              sendMessage message msgNum receivingChan
+              let chanRef = read (dropCommand $ head $ lines message)::Int
+              let receivingChan = unpackJustChan $ getChanByRef chanRef theChanList
+              let client = getClientById clientNum theClientList
+              if clientInRoom client chanRef then sendMessage message msgNum receivingChan
+              else errorMessage hdl 4
         3 -> do
               putStrLn "Disconnecting"
               hClose hdl
@@ -139,6 +172,7 @@ runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
               putStrLn "Joining chatroom"
               let clientName = dropCommand $ getFirstLine $ reverse message
               let chatroomName = dropCommand (getFirstLine message)
+
               addClient clientName clientListRef
               theChanList <- readIORef chanListRef
               let myNewChan = getChanByString chatroomName theChanList
@@ -146,6 +180,8 @@ runConn (sock, address) hdl chan msgNum clientNum clientListRef chanListRef = do
                 Nothing -> do
                             myChan <- newChan
                             addToChanList chatroomName myChan chanListRef
+                            theChanList <- readIORef chanListRef
+                            addToClientRoomList clientNum (getChanRefByString chatroomName theChanList) clientListRef
                             theChanList <- readIORef chanListRef
                             hPutStrLn hdl $ printJoinedRoom chatroomName clientNum address theChanList
                             reader <- forkIO $ fix $ \loop -> do
@@ -189,19 +225,19 @@ getLeftRoomMessage msg  = do
 
 
 getClientName :: String -> String
-getClientName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse x)) $ reverse x
+getClientName x = tail $ reverse $ take (unpackJustInt(elemIndex ':' $ reverse x)) $ reverse x
 
 getFirstLine :: String -> String
 getFirstLine x = head $ lines x
 
 getCommand :: String -> String
-getCommand x = take (unpackJust (elemIndex ':' $ x)) $ x
+getCommand x = take (unpackJustInt(elemIndex ':' $ x)) $ x
 
 dropCommand :: String -> String
-dropCommand x = drop ((unpackJust (elemIndex ':' x)) + 1) $ x
+dropCommand x = drop ((unpackJustInt(elemIndex ':' x)) + 1) $ x
 
 getChatroomName :: String -> String
-getChatroomName x = tail $ reverse $ take (unpackJust (elemIndex ':' $ reverse (getFirstLine x))) $ reverse (getFirstLine x)
+getChatroomName x = tail $ reverse $ take (unpackJustInt(elemIndex ':' $ reverse (getFirstLine x))) $ reverse (getFirstLine x)
 
 unpackJustChan :: Maybe (Chan Msg) -> Chan Msg
 unpackJustChan (Just a) = a
@@ -209,15 +245,15 @@ unpackJustChan (Just a) = a
 unpackJustString :: Maybe String -> String
 unpackJustString (Just a) = a
 
-unpackJust :: Maybe Int -> Int
-unpackJust (Just a) = a
-unpackJust _  = 404
+unpackJustInt :: Maybe Int -> Int
+unpackJustInt (Just a) = a
+unpackJustInt _  = 404
 
 getSockPort :: SockAddr -> String
-getSockPort x = tail $ drop (unpackJust (elemIndex ':' $ show x)) $ show x
+getSockPort x = tail $ drop (unpackJustInt(elemIndex ':' $ show x)) $ show x
 
 getSockAddress :: SockAddr -> String
-getSockAddress x = take (unpackJust (elemIndex ':' $ show x)) $ show x
+getSockAddress x = take (unpackJustInt(elemIndex ':' $ show x)) $ show x
 
 sendHeloText :: SockAddr -> Handle -> IO()
 sendHeloText address hdl = hPutStr hdl ("HELO text\nIP: "  ++ getSockAddress address ++ "\n" ++ "Port: " ++ getSockPort address ++ "\nStudentID: 13324607\n")
@@ -225,4 +261,5 @@ sendHeloText address hdl = hPutStr hdl ("HELO text\nIP: "  ++ getSockAddress add
 errorMessage :: Handle -> Int -> IO()
 errorMessage hdl 1 = hPutStr hdl "ERROR CODE: 1\nERROR_DESCRIPTION: Invalid input"
 errorMessage hdl 3 = hPutStr hdl "ERROR CODE: 3\nERROR_DESCRIPTION: No chatroom exists for specified ref."
+errorMessage hdl 4 = hPutStr hdl "ERROR CODE: 4\nERROR_DESCRIPTION: You are not a member of specified chatroom."
 errorMessage hdl x = hPutStr hdl "ERROR CODE: 1\nERROR_DESCRIPTION: Undefined error"
