@@ -79,13 +79,18 @@ clientInRoom client (a,b,c,d) = elem client d
 --   let finalClientList = newClient:newClientList
 --   writeIORef clientListRef finalClientList
 
--- removeFromClientRoomList :: Int -> Int -> IORef [(Int, String, [Int])] -> IO()
--- removeFromClientRoomList joinId roomId clientListRef = do
---   putStrLn "removing from client room list"
---   clientList <- readIORef clientListRef
---   let indexOfClientToEdit = unpackJustInt $ elemIndex joinId (map getClientRef clientList)
---   let (a,b,c) = clientList !! indexOfClientToEdit
---   let newClientList = deleteN indexOfClientToEdit clientList
+leaveChatroom :: Client -> Chatroom -> IORef [Chatroom] -> IO()
+leaveChatroom client chatroom chatroomListRef = do
+  putStrLn "leaving chatroom"
+  chatroomList <- readIORef chatroomListRef
+  let indexOfRoomToRemove = unpackJustInt $ elemIndex chatroom chatroomList
+  let (a,b,c,d) = chatroomList !! indexOfRoomToRemove
+  putStrLn $ "List of clients before: " ++ (show d)
+  let newMemberList = deleteN (unpackJustInt $ elemIndex client d) d
+  putStrLn $ "List of clients before: " ++ (show newMemberList)
+  let newRoomList = deleteN indexOfRoomToRemove chatroomList
+  let finalRoomList = (a,b,c,newMemberList):newRoomList
+  writeIORef chatroomListRef finalRoomList
 --
 --   if elem roomId c then do
 --     let newC = deleteN (unpackJustInt $ elemIndex roomId (map getClientRef clientList)) c
@@ -93,12 +98,6 @@ clientInRoom client (a,b,c,d) = elem client d
 --     let finalClientList = newClient:newClientList
 --     writeIORef clientListRef finalClientList
 --   else putStrLn "Tried to leave chat but wasn't a member of the room."
-
--- getClientById :: Int -> [Client] -> Client
--- getClientById _ [] = (999,"Failed")
--- getClientById ref (client@(a,b):ys)
---               | ref == a = client
---               | otherwise = getClientById ref ys
 
 getClientIdByName :: String -> [(Int,String,[Int])] -> Maybe Int
 getClientIdByName _ [] = Nothing
@@ -244,39 +243,18 @@ runConn (sock, address) hdl msgNum clientNum chatroomListRef = do
                 when (msgNum /= nextNum) $ hPutStrLn hdl line
                 loop
               runConn (sock, address) hdl msgNum clientNum chatroomListRef
-
-          -- case myNewChan of
-          --   Nothing -> do
-          --               myChan <- newChan
-          --               addToChanList chatroomName myChan chatroomListRef
-          --               theChatroomList <- readIORef chatroomListRef
-          --               addToClientRoomList clientNum (getChanRefByString chatroomName theChatroomList) clientListRef
-          --               theChatroomList <- readIORef chatroomListRef
-          --               hPutStrLn hdl $ printJoinedRoom chatroomName clientNum address theChatroomList
-          --               reader <- forkIO $ fix $ \loop -> do
-          --                   (nextNum, line) <- readChan myChan
-          --                   when (msgNum /= nextNum) $ hPutStrLn hdl line
-          --                   loop
-          --               runConn (sock, address) hdl myChan msgNum clientNum clientListRef chatroomListRef
-          --   Just x -> do
-          --               myChan <- dupChan x
-          --               addToClientRoomList clientNum (getChanRefByString chatroomName theChatroomList) clientListRef
-          --               hPutStrLn hdl $ printJoinedRoom chatroomName clientNum address theChatroomList
-          --               reader <- forkIO $ fix $ \loop -> do
-          --                   (nextNum, line) <- readChan myChan
-          --                   when (msgNum /= nextNum) $ hPutStrLn hdl line
-          --                   loop
-          --               runConn (sock, address) hdl myChan msgNum clientNum clientListRef chatroomListRef
     5 -> do
-          putStrLn "leaving chatroom"
-          -- TODO: fix
+          -- putStrLn "leaving chatroom"
           let roomRef = read (dropCommand $ getFirstLine message)::Int
           let joinId = read (dropCommand $ getLineX 2 message) ::Int
-          let theClientList = []
-          let clientName = unpackJustString $ getClientNameById joinId theClientList
-          -- removeFromClientRoomList joinId roomRef clientListRef
+          let clientName = dropCommand $ getLineX 3 message
+          let client = (joinId,clientName)
+          theChatroomList <- readIORef chatroomListRef
+          let room = getChatroomByRef roomRef theChatroomList
+
+          leaveChatroom client room chatroomListRef
           hPutStrLn hdl $ getLeftRoomMessage message
-          -- writeChan chan (msgNum, (clientName ++ " has left the chatroom."))
+          writeChan (getChatroomChan room) (msgNum, (clientName ++ " has left the chatroom."))
           runConn (sock, address) hdl msgNum clientNum chatroomListRef
     6 -> errorMessage hdl 1
   runConn (sock, address) hdl msgNum clientNum chatroomListRef
