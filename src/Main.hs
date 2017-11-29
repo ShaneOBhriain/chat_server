@@ -244,14 +244,12 @@ runConn (sock, address) hdl msgNum clientNum chatroomListRef = do
                 loop
               runConn (sock, address) hdl msgNum clientNum chatroomListRef
     5 -> do
-          -- putStrLn "leaving chatroom"
           let roomRef = read (dropCommand $ getFirstLine message)::Int
           let joinId = read (dropCommand $ getLineX 2 message) ::Int
           let clientName = dropCommand $ getLineX 3 message
           let client = (joinId,clientName)
           theChatroomList <- readIORef chatroomListRef
           let room = getChatroomByRef roomRef theChatroomList
-
           leaveChatroom client room chatroomListRef
           hPutStrLn hdl $ getLeftRoomMessage message
           writeChan (getChatroomChan room) (msgNum, (clientName ++ " has left the chatroom."))
