@@ -68,17 +68,6 @@ getClientRef (a,b,c) = a
 clientInRoom :: Client -> Chatroom -> Bool
 clientInRoom client (a,b,c,d) = elem client d
 
--- addToClientRoomList :: Int -> Int -> IORef [(Int, String, [Int])] -> IO()
--- addToClientRoomList joinId roomId clientListRef = do
---   putStrLn "adding to client room list"
---   clientList <- readIORef clientListRef
---   let indexOfClientToEdit = unpackJustInt $ elemIndex joinId (map getClientRef clientList)
---   let (a,b,c) = clientList !! indexOfClientToEdit
---   let newClient = (a,b,roomId:c)
---   let newClientList = deleteN indexOfClientToEdit clientList
---   let finalClientList = newClient:newClientList
---   writeIORef clientListRef finalClientList
-
 leaveChatroom :: Client -> Chatroom -> IORef [Chatroom] -> IO()
 leaveChatroom client chatroom chatroomListRef = do
   putStrLn "leaving chatroom"
@@ -91,13 +80,6 @@ leaveChatroom client chatroom chatroomListRef = do
   let newRoomList = deleteN indexOfRoomToRemove chatroomList
   let finalRoomList = (a,b,c,newMemberList):newRoomList
   writeIORef chatroomListRef finalRoomList
---
---   if elem roomId c then do
---     let newC = deleteN (unpackJustInt $ elemIndex roomId (map getClientRef clientList)) c
---     let newClient = (a,b,newC)
---     let finalClientList = newClient:newClientList
---     writeIORef clientListRef finalClientList
---   else putStrLn "Tried to leave chat but wasn't a member of the room."
 
 getClientIdByName :: String -> [(Int,String,[Int])] -> Maybe Int
 getClientIdByName _ [] = Nothing
@@ -145,7 +127,6 @@ getChanRefByString name ((a,b,c,d):ys)
 
 sendMessage :: String -> Int -> Chan Msg -> IO()
 sendMessage bigMessage msgNum chan = writeChan chan (msgNum, unlines (head (myLines bigMessage) : tail (tail (myLines bigMessage))) )
--- sendMessage bigMessage msgNum chan = writeChan chan (msgNum, "unlines (head (myLines bigMessage) : tail (tail (myLines bigMessage)))" )
 
 errorCheckMessage :: Integer -> [String] -> Bool
 errorCheckMessage 2 l = [getCommand x | x <- l] == ["CHAT","JOIN_ID", "CLIENT_NAME","MESSAGE"]
@@ -187,7 +168,6 @@ trim = f . f
 
 runConn :: (Socket, SockAddr) -> Handle -> Int -> Int -> IORef [Chatroom] -> IO()
 runConn (sock, address) hdl msgNum clientNum chatroomListRef = do
-  message <- fmap init (hGetLine hdl)
   messageType <- processMessage $ getCommand (getFirstLine message)
   print message
   print $ show messageType
